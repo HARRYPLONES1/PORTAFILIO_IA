@@ -18,5 +18,5 @@ Para ejecutar cualquiera de los proyectos en este repositorio, sigue los siguien
 
 1. Clona este repositorio:
    ```bash
-   git clone 
+   git clone https://github.com/HARRYPLONES1/PORTAFILIO_IA.git
 
