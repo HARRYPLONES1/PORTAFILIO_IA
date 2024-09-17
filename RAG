@@ -1,0 +1,104 @@
+import pymongo
+from datetime import datetime
+from langchain.text_splitter import RecursiveCharacterTextSplitter as RC
+from langchain.text_splitter import RecursiveJsonSplitter as RJ
+import os
+from langchain.retrievers import BM25Retriever, EnsembleRetriever
+from langchain.chains import RetrievalQA
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.chat_models import ChatOpenAI
+
+class Chatbot:
+    def __init__(self, chunks=[]):
+        self.chunks = chunks
+
+    def obtener_sentencias(self, fecha, num_sentencias):
+        '''
+        Recibe una fecha desde la cual se va a buscar.
+        num_sentencias indica el número de sentencias a retornar.
+        Se retorna una lista de diccionarios.
+        '''
+        uri=""
+        cliente = pymongo.MongoClient(uri)
+        
+        nombre_db = ''
+        nombre_coleccion = ''
+        
+        db = cliente[nombre_db]
+        col = db[nombre_coleccion]
+
+        sentencias = col.find({'fecha': {'$gte': fecha}}, {'segmentos': 1, '_id': 0}).limit(num_sentencias)
+        sentencias = [sentencia['segmentos'] for sentencia in sentencias]
+
+        return sentencias
+
+    def crear_chunks(self, fecha, num_sentencias, chunk_size=1024, chunk_overlap=102, length_function=len):
+        
+        sentencias = self.obtener_sentencias(fecha, num_sentencias)
+        
+        #se crean los chunks
+        text_splitter = RC(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=length_function
+        )                       
+        for sentencia in sentencias:        
+            for segmento in sentencia:
+                self.chunks+=text_splitter.create_documents([segmento])        
+        
+
+    def crear_embeddings(self, API_KEY):   
+        #se crean los embeddings
+        os.environ['OPENAI_API_KEY'] = API_KEY
+        embeddings = OpenAIEmbeddings()
+        db = FAISS.from_documents(self.chunks, embeddings)
+        db.save_local("faiss_index3") 
+
+    def chat(self, query, chat_llm, API_KEY, persist_directory):
+        #Carga los chunks para que se pueda buscar a través de ellos
+        retriever = BM25Retriever.from_documents(self.chunks)
+
+        #Crea la clase embeddings para que se pueda buscar a través de ellos
+        os.environ['OPENAI_API_KEY'] = API_KEY
+        embeddings = OpenAIEmbeddings()
+
+        #En db se llama a los embeddings guardados y se usa openai para obtener los embeddings     
+        db = FAISS.load_local(persist_directory, embeddings)
+        
+        #Se crea faiss_retriever para buscar a través de los embeddings las k respuestas más similares
+        faiss_retriever = db.as_retriever(search_kwargs={"k": 5}) #Aumentar el número de k para obtener respuestas más acertadas
+
+        #Se crea el ensemble_retriever para que se pueda buscar a través de los dos métodos, BM25 y FAISS
+        #a través de una suma ponderada de los dos métodos
+        ensemble_retriever = EnsembleRetriever(retrievers=[retriever, faiss_retriever],
+                                                    weights=[0.5, 0.5])
+
+        #Se llama al LLM y se une con el ensemble_retriever
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=chat_llm,
+            retriever=ensemble_retriever,
+        )
+
+        #retorna la respuesta a la pregunta
+        return qa_chain.run(query)
+
+
+
+
+chatbot=Chatbot()
+
+
+fecha=datetime(2021, 5, 1)
+num_sentencias=20
+
+chatbot.crear_chunks(fecha, num_sentencias)
+
+
+with open("API_KEY.txt", 'r') as archivo:       
+    API_KEY = archivo.read()
+query="Cuales son los derechos fundamentales?"
+chat= ChatOpenAI(temperature=0.0, base_url="https://llm-api-aprendizaje-profundo.ngrok.io/v1", api_key="not-needed")
+persist_directory="C:\\Users\\Usuario\\Desktop\\autogen\\Pipeline\\faiss_index3"
+
+chatbot.chat(query, chat, API_KEY, persist_directory)
