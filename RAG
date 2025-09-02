@@ -98,7 +98,7 @@ chatbot.crear_chunks(fecha, num_sentencias)
 with open("API_KEY.txt", 'r') as archivo:       
     API_KEY = archivo.read()
 query="Cuales son los derechos fundamentales?"
-chat= ChatOpenAI(temperature=0.0, base_url="https://llm-api-aprendizaje-profundo.ngrok.io/v1", api_key="not-needed")
+chat= ChatOpenAI(temperature=0.0, base_url="###", api_key="not-needed")
 persist_directory="C:\\Users\\Usuario\\Desktop\\autogen\\Pipeline\\faiss_index3"
 
 chatbot.chat(query, chat, API_KEY, persist_directory)
